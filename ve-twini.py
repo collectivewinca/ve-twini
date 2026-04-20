@@ -6,10 +6,12 @@ Bridges bird (GraphQL API) and opencli (browser automation)
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 
+from db import BookmarkDB
 from enrich import expand_tco_urls, extract_media_urls
 
 BIRD_CMD = "bird"
@@ -101,6 +103,31 @@ def cmd_auth_check():
         print("  ❌ Browser error")
 
 
+def cmd_archive():
+    """Fetch bookmarks via bird and archive new ones in SQLite."""
+    db_path = os.environ.get("VE_TWINI_DB", "~/.ve-twini/bookmarks.db")
+    db = BookmarkDB(db_path)
+
+    result = run_bird(["bookmarks", "--json"])
+    if result.returncode != 0:
+        print(f"bird error: {result.stderr}", file=sys.stderr)
+        sys.exit(1)
+
+    tweets = json.loads(result.stdout)
+    new_tweets = db.filter_new_tweets(tweets)
+
+    if not new_tweets:
+        print("No new bookmarks to archive")
+        db.mark_sync_time()
+        return
+
+    for tweet in new_tweets:
+        db.archive_tweet(tweet)
+
+    db.mark_sync_time()
+    print(f"Archived {len(new_tweets)} new bookmarks")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ve-twini — Unified Twitter/X CLI",
@@ -125,6 +152,9 @@ def main():
     # auth-check
     sub.add_parser("auth-check", help="Check auth status")
 
+    # archive
+    p = sub.add_parser("archive", help="Fetch bookmarks and archive new ones to SQLite")
+
     opts = parser.parse_args()
 
     if opts.command == "bookmarks":
@@ -135,6 +165,8 @@ def main():
         cmd_search(opts.query, opts.json)
     elif opts.command == "auth-check":
         cmd_auth_check()
+    elif opts.command == "archive":
+        cmd_archive()
     else:
         parser.print_help()
 

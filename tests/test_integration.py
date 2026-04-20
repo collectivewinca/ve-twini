@@ -1,5 +1,6 @@
-import json
 import io
+import json
+import os
 import sys
 from unittest.mock import patch, MagicMock
 
@@ -11,6 +12,8 @@ ve_twini = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ve_twini)
 
 cmd_bookmarks = ve_twini.cmd_bookmarks
+cmd_archive = ve_twini.cmd_archive
+BookmarkDB = ve_twini.BookmarkDB
 
 
 class TestEnrichIntegration:
@@ -113,4 +116,70 @@ class TestEnrichIntegration:
         with patch.object(ve_twini, 'run_bird', return_value=mock_result):
             with pytest.raises(SystemExit) as exc:
                 cmd_bookmarks(json_output=False, enrich=True)
+            assert exc.value.code == 1
+
+
+class TestArchiveIntegration:
+
+    def test_archive_archives_new_tweets(self, tmp_path):
+        tweets = [
+            {"id": "1", "text": "Hello", "author_username": "user1", "author_name": "User One", "created_at": "2024-01-01T00:00:00Z"},
+            {"id": "2", "text": "World", "author_username": "user2", "author_name": "User Two", "created_at": "2024-01-02T00:00:00Z"},
+        ]
+        mock_result = MagicMock(returncode=0, stdout=json.dumps(tweets))
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.dict(os.environ, {"VE_TWINI_DB": str(tmp_path / "test.db")}):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_archive()
+            output = captured.getvalue()
+
+        assert "Archived 2 new bookmarks" in output
+
+    def test_archive_no_new_tweets(self, tmp_path):
+        existing_tweets = [
+            {"id": "1", "text": "Existing", "author_username": "user1", "author_name": "User One", "created_at": "2024-01-01T00:00:00Z"},
+        ]
+        db = BookmarkDB(str(tmp_path / "test.db"))
+        for t in existing_tweets:
+            db.archive_tweet(t)
+
+        all_tweets = [
+            {"id": "1", "text": "Existing", "author_username": "user1", "author_name": "User One", "created_at": "2024-01-01T00:00:00Z"},
+            {"id": "2", "text": "New", "author_username": "user2", "author_name": "User Two", "created_at": "2024-01-02T00:00:00Z"},
+        ]
+        mock_result = MagicMock(returncode=0, stdout=json.dumps(all_tweets))
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.dict(os.environ, {"VE_TWINI_DB": str(tmp_path / "test.db")}):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_archive()
+            output = captured.getvalue()
+
+        assert "Archived 1 new bookmarks" in output
+
+    def test_archive_all_already_archived(self, tmp_path):
+        existing_tweet = {"id": "1", "text": "Already saved", "author_username": "user1", "author_name": "User One", "created_at": "2024-01-01T00:00:00Z"}
+        db = BookmarkDB(str(tmp_path / "test.db"))
+        db.archive_tweet(existing_tweet)
+
+        mock_result = MagicMock(returncode=0, stdout=json.dumps([existing_tweet]))
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.dict(os.environ, {"VE_TWINI_DB": str(tmp_path / "test.db")}):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_archive()
+            output = captured.getvalue()
+
+        assert "No new bookmarks to archive" in output
+
+    def test_archive_bird_error_exits(self):
+        mock_result = MagicMock(returncode=1, stderr="auth required")
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result):
+            with pytest.raises(SystemExit) as exc:
+                cmd_archive()
             assert exc.value.code == 1
