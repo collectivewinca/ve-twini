@@ -98,14 +98,13 @@ def cmd_auth_check():
         print(f"  {result.stderr}")
 
     print("\n[opencli browser]")
-    result = run_opencli(["browser", "state"])
-    if "about:blank" in result.stdout:
-        print("  ⚠️  Browser open but not connected to extension")
-    elif result.returncode == 0:
+    doctor = run_opencli(["doctor"])
+    if "Extension: connected" in doctor.stdout:
         print("  ✅ Chrome Bridge connected")
-        print(result.stdout)
+    elif "about:blank" in doctor.stdout:
+        print("  ⚠️  Browser open but not on a real page (extension may still be connected)")
     else:
-        print("  ❌ Browser error")
+        print("  ❌ Extension not connected")
 
 
 def cmd_archive():
