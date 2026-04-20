@@ -32,6 +32,9 @@ ve-twini provides a unified interface:
 # Full-featured bookmark fetch (bird data + opencli media enrichment)
 ve-twini bookmarks
 
+# Enriched bookmarks — resolve t.co URLs + extract media
+ve-twini bookmarks --enrich
+
 # Tweet via browser automation
 ve-twini post "Hello from ve-twini"
 
@@ -41,8 +44,11 @@ ve-twini search "AI agents"
 # Verify auth status across both tools
 ve-twini auth-check
 
-# Archive bookmarks to local SQLite
+# Archive bookmarks to local SQLite (incremental sync)
 ve-twini archive
+
+# Set custom archive path
+VE_TWINI_DB=/path/to/bookmarks.db ve-twini archive
 ```
 
 ## Source Repos
@@ -77,6 +83,12 @@ ve-twini (CLI router)
 
 ## Status
 
-**WIP** — Design complete, implementation pending.
+✅ **Implemented** — All core features complete.
 
-See [docs/](docs/) for design documents.
+## Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `VE_TWINI_DB` | `~/.ve-twini/bookmarks.db` | SQLite archive path |
+
+See [docs/](docs/) for design documents and implementation plan.
