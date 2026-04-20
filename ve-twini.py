@@ -6,8 +6,11 @@ Bridges bird (GraphQL API) and opencli (browser automation)
 
 import argparse
 import json
+import re
 import subprocess
 import sys
+
+from enrich import expand_tco_urls, extract_media_urls
 
 BIRD_CMD = "bird"
 OPENCLI_CMD = "opencli"
@@ -30,19 +33,26 @@ def run_opencli(args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
-def cmd_bookmarks(json_output: bool = False):
+def cmd_bookmarks(json_output: bool = False, enrich: bool = False):
     """Fetch bookmarks via bird, enrich with media URLs."""
-    args = ["bookmarks"]
-    if json_output:
-        args.append("--json")
-
+    args = ["bookmarks", "--json"]
     result = run_bird(args)
 
     if result.returncode != 0:
         print(f"bird error: {result.stderr}", file=sys.stderr)
         sys.exit(1)
 
-    print(result.stdout)
+    if enrich:
+        tweets = json.loads(result.stdout)
+        for tweet in tweets:
+            tco_urls = re.findall(r'https://t\.co/\S+', tweet.get("text", ""))
+            tweet["_enriched"] = {
+                "urls": expand_tco_urls(tco_urls),
+                "media": extract_media_urls(tweet),
+            }
+        print(json.dumps(tweets, indent=2))
+    else:
+        print(result.stdout)
 
 
 def cmd_post(text: str):
@@ -101,6 +111,7 @@ def main():
     # bookmarks
     p = sub.add_parser("bookmarks", help="Fetch your bookmarks")
     p.add_argument("--json", action="store_true", help="Output raw JSON")
+    p.add_argument("--enrich", action="store_true", help="Expand t.co URLs and attach media URLs")
 
     # post
     p = sub.add_parser("post", help="Post a tweet")
@@ -117,7 +128,7 @@ def main():
     opts = parser.parse_args()
 
     if opts.command == "bookmarks":
-        cmd_bookmarks(opts.json)
+        cmd_bookmarks(opts.json, opts.enrich)
     elif opts.command == "post":
         cmd_post(opts.text)
     elif opts.command == "search":

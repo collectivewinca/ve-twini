@@ -1,0 +1,116 @@
+import json
+import io
+import sys
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+import importlib.util
+spec = importlib.util.spec_from_file_location("ve_twini", str(__file__).rsplit("/", 2)[0] + "/ve-twini.py")
+ve_twini = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ve_twini)
+
+cmd_bookmarks = ve_twini.cmd_bookmarks
+
+
+class TestEnrichIntegration:
+
+    def test_enrich_adds_enriched_key(self):
+        mock_result = MagicMock(
+            returncode=0,
+            stdout=json.dumps([
+                {"id": "1", "text": "Check this https://t.co/abc123 video", "media": []}
+            ])
+        )
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.object(ve_twini, 'expand_tco_urls') as mock_expand, \
+             patch.object(ve_twini, 'extract_media_urls') as mock_extract:
+
+            mock_expand.return_value = [{"original": "https://t.co/abc123", "expanded": "https://example.com/video"}]
+            mock_extract.return_value = [{"url": "https://pbs.twimg.com/media/img.jpg", "type": "photo", "width": 1200, "height": 675}]
+
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=True)
+                output = captured.getvalue()
+
+        result = json.loads(output)
+        assert "_enriched" in result[0]
+        assert result[0]["_enriched"]["urls"][0]["expanded"] == "https://example.com/video"
+        assert result[0]["_enriched"]["media"][0]["type"] == "photo"
+
+    def test_enrich_parses_tco_urls(self):
+        mock_result = MagicMock(
+            returncode=0,
+            stdout=json.dumps([
+                {"id": "2", "text": "Link https://t.co/xyz789 and https://t.co/aaa111", "media": []}
+            ])
+        )
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.object(ve_twini, 'expand_tco_urls') as mock_expand, \
+             patch.object(ve_twini, 'extract_media_urls') as mock_extract:
+
+            mock_expand.return_value = [
+                {"original": "https://t.co/xyz789", "expanded": "https://first.com"},
+                {"original": "https://t.co/aaa111", "expanded": "https://second.com"}
+            ]
+            mock_extract.return_value = []
+
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=True)
+                output = captured.getvalue()
+
+        result = json.loads(output)
+        assert len(result[0]["_enriched"]["urls"]) == 2
+
+    def test_enrich_extracts_media(self):
+        mock_result = MagicMock(
+            returncode=0,
+            stdout=json.dumps([
+                {"id": "3", "text": "Photo post", "media": [
+                    {"url": "https://pbs.twimg.com/media/1.jpg", "type": "photo", "width": 800, "height": 600},
+                    {"url": "https://pbs.twimg.com/media/2.jpg", "type": "photo", "width": 1200, "height": 900}
+                ]}
+            ])
+        )
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result), \
+             patch.object(ve_twini, 'expand_tco_urls') as mock_expand, \
+             patch.object(ve_twini, 'extract_media_urls') as mock_extract:
+
+            mock_expand.return_value = []
+            mock_extract.return_value = [
+                {"url": "https://pbs.twimg.com/media/1.jpg", "type": "photo", "width": 800, "height": 600},
+                {"url": "https://pbs.twimg.com/media/2.jpg", "type": "photo", "width": 1200, "height": 900}
+            ]
+
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=True)
+                output = captured.getvalue()
+
+        result = json.loads(output)
+        assert len(result[0]["_enriched"]["media"]) == 2
+
+    def test_enrich_false_prints_raw_json(self):
+        raw = '[{"id": "5", "text": "raw"}]'
+        mock_result = MagicMock(returncode=0, stdout=raw)
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=False)
+                output = captured.getvalue()
+
+        assert output.strip() == raw
+
+    def test_enrich_bird_error_exits(self):
+        mock_result = MagicMock(returncode=1, stderr="auth required")
+
+        with patch.object(ve_twini, 'run_bird', return_value=mock_result):
+            with pytest.raises(SystemExit) as exc:
+                cmd_bookmarks(json_output=False, enrich=True)
+            assert exc.value.code == 1
