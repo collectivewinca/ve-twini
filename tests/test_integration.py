@@ -110,13 +110,43 @@ class TestEnrichIntegration:
 
         assert output.strip() == raw
 
-    def test_enrich_bird_error_exits(self):
-        mock_result = MagicMock(returncode=1, stderr="auth required")
+    def test_both_bird_and_opencli_fail(self):
+        bird_fail = MagicMock(returncode=1, stderr="bird auth error")
+        opencli_fail = MagicMock(returncode=1, stderr="opencli error")
 
-        with patch.object(ve_twini, 'run_bird', return_value=mock_result):
+        with patch.object(ve_twini, 'run_bird', return_value=bird_fail), \
+             patch.object(ve_twini, 'run_opencli', return_value=opencli_fail):
             with pytest.raises(SystemExit) as exc:
-                cmd_bookmarks(json_output=False, enrich=True)
+                cmd_bookmarks(json_output=False, enrich=False)
             assert exc.value.code == 1
+
+    def test_bird_fallback_to_opencli_succeeds(self):
+        bird_fail = MagicMock(returncode=1, stderr="auth required")
+        opencli_success = MagicMock(returncode=0, stdout='[{"id": "7", "text": "from opencli"}]')
+
+        with patch.object(ve_twini, 'run_bird', return_value=bird_fail), \
+             patch.object(ve_twini, 'run_opencli', return_value=opencli_success):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=False)
+            output = captured.getvalue()
+
+        assert '{"id": "7", "text": "from opencli"}' in output
+
+    def test_bird_fallback_to_opencli_enrich_flag_ignored(self):
+        bird_fail = MagicMock(returncode=1, stderr="auth required")
+        opencli_success = MagicMock(returncode=0, stdout='[{"id": "8", "text": "https://t.co/abc opencli"}]')
+
+        with patch.object(ve_twini, 'run_bird', return_value=bird_fail), \
+             patch.object(ve_twini, 'run_opencli', return_value=opencli_success):
+            captured = io.StringIO()
+            with patch.object(sys, 'stdout', captured):
+                cmd_bookmarks(json_output=False, enrich=True)
+            output = captured.getvalue()
+
+        result = json.loads(output)
+        assert result[0]["id"] == "8"
+        assert "_enriched" not in result[0]
 
 
 class TestArchiveIntegration:

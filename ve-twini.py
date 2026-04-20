@@ -41,8 +41,13 @@ def cmd_bookmarks(json_output: bool = False, enrich: bool = False):
     result = run_bird(args)
 
     if result.returncode != 0:
-        print(f"bird error: {result.stderr}", file=sys.stderr)
-        sys.exit(1)
+        print("⚠️  bird auth failed or unavailable, trying opencli...", file=sys.stderr)
+        result = run_opencli(["twitter", "bookmarks"])
+        if result.returncode != 0:
+            print(f"opencli also failed: {result.stderr}", file=sys.stderr)
+            sys.exit(1)
+        print(result.stdout)
+        return
 
     if enrich:
         tweets = json.loads(result.stdout)
